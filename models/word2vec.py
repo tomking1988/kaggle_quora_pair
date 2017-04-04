@@ -7,10 +7,11 @@ class Config(object):
     batch_size = 50000
     window_size = 3
     embed_size = 100
-    vocab_size = 101343
-    epoch = 1000
+    vocab_size = 137077
+    epoch = 100
+    trained_embedding_file_path = '../data/trained_model/trained_embeddings.ckpt'
 
-class word2vec(object):
+class Word2vec(object):
 
     def add_placeholder(self):
         self.batch_placeholder = tf.placeholder(shape=(None,), dtype=tf.int32)
@@ -53,6 +54,7 @@ class word2vec(object):
         self.true_logits = self.add_predict_op()
         self.loss = self.add_loss(self.true_logits)
         self.train_op = self.add_optimize(self.loss)
+        self.saver = tf.train.Saver()
 
     def train_batch(self, sess, batch, label):
         feed_dict = self.create_feed_dict(batch, label)
@@ -120,9 +122,11 @@ class word2vec(object):
                     labels.append(word)
         return batch, labels
 
+    def save(self, sess, save_path):
+        self.saver.save(sess, save_path)
+
 if __name__ == "__main__":
-    #example = read_training_file('../data/numerical_questions.txt')
-    model = word2vec()
+    model = Word2vec()
     question_batch = model.create_question_batch('../data/numerical_questions.txt', Config.question_batch_size)
     model.load_embeddings(embedding_file_path='../data/embedding_init.txt')
     model.build()
@@ -136,5 +140,6 @@ if __name__ == "__main__":
             batch, label = model.create_batch(questions, Config.batch_size)
             loss = model.train_batch(sess, batch, label)
             print "step:{}, loss:{}".format(step, loss)
+        model.save(sess, Config.trained_embedding_file_path)
         coord.request_stop()
         coord.join(threads)
