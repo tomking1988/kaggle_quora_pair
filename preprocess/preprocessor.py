@@ -39,6 +39,14 @@ def create_vocab(input_file_path, output_file_path):
                 output_file.write(word.decode('utf-8'))
                 output_file.write('\n'.decode('utf-8'))
 
+def load_reverse_vocab(vocab_file_path):
+    reverse_idx_vocab = dict()
+    with io.open(vocab_file_path, encoding='utf-8') as vocab_file:
+        for idx, word in enumerate(vocab_file):
+            reverse_idx_vocab[word.strip()] = idx
+    return reverse_idx_vocab
+
+
 def numerical_encoding(input_file_path, vocab_file_path, output_file_path):
     reverse_idx_vocab = dict()
     with io.open(vocab_file_path, encoding='utf-8') as vocab_file:
@@ -74,13 +82,14 @@ def numerical_encode_train(train_file_path, vocab_file_path, output_file_path):
             csv.to_csv(output_file_path, encoding='utf-8', index=False, header=False)
 
 
-
-
 def encoding_string(sentence, reverse_vocab):
+    words = sentence_to_numeric(sentence, reverse_vocab)
+    return space_concatenator(words)
+
+def sentence_to_numeric(sentence, reverse_vocab):
     words = text_to_word_sequence(sentence)
     words = map(lambda word: word.decode('utf-8'), words)
-    words = map(lambda word: reverse_vocab[word], words)
-    return space_concatenator(words)
+    return map(lambda word: reverse_vocab[word], words)
 
 
 def load_glove(glove_file_path, dimension=100):

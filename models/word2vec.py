@@ -9,7 +9,8 @@ class Config(object):
     embed_size = 100
     vocab_size = 137077
     epoch = 100
-    trained_embedding_file_path = '../data/trained_model/trained_embeddings.ckpt'
+    trained_embedding_file_path = '../data/trained_model/word2vec/trained_embeddings.ckpt'
+    dropout = 0.9
 
 class Word2vec(object):
 
@@ -17,12 +18,14 @@ class Word2vec(object):
         self.batch_placeholder = tf.placeholder(shape=(None,), dtype=tf.int32)
         self.label_placeholder = tf.placeholder(shape=(None,), dtype=tf.int32)
         self.sample_placeholder = tf.placeholder(shape=(None,), dtype=tf.int32)
+        self.dropout_placeholder = tf.placeholder(dtype=tf.float32)
 
-    def create_feed_dict(self, batch, label):
+    def create_feed_dict(self, batch, label, dropout=1):
         feed_dict = {}
         feed_dict[self.batch_placeholder] = batch
         feed_dict[self.label_placeholder] = label
         #feed_dict[self.sample_placeholder] = sample
+        feed_dict[self.dropout_placeholder] = dropout
         return feed_dict
 
     def add_predict_op(self):
@@ -31,6 +34,7 @@ class Word2vec(object):
         sm_b = tf.get_variable(name='sm_b', shape=(Config.vocab_size,),
                                initializer=tf.contrib.layers.xavier_initializer())
         batch_embeddings = tf.nn.embedding_lookup(self.pretrained_embeddings, self.batch_placeholder)
+        batch_embeddings = tf.nn.dropout(batch_embeddings, keep_prob=self.dropout_placeholder)
         true_w = tf.nn.embedding_lookup(sm_w_t, self.label_placeholder)
         true_b = tf.nn.embedding_lookup(sm_b, self.label_placeholder)
         true_logits = tf.reduce_sum(tf.multiply(batch_embeddings, true_w), 1) + true_b
@@ -57,7 +61,7 @@ class Word2vec(object):
         self.saver = tf.train.Saver()
 
     def train_batch(self, sess, batch, label):
-        feed_dict = self.create_feed_dict(batch, label)
+        feed_dict = self.create_feed_dict(batch, label, Config.dropout)
         _, loss = sess.run([self.train_op, self.loss], feed_dict=feed_dict)
         return loss
 
@@ -80,9 +84,6 @@ class Word2vec(object):
         filename_queue = tf.train.string_input_producer([file_path])
         reader = tf.TextLineReader()
         key, value = reader.read(filename_queue)
-        #value = tf.string_split([value], delimiter=',').values
-        #value = tf.string_to_number(value, out_type=tf.int32)
-
         return value
 
     def create_question_batch(self, file_path, batch_size):
