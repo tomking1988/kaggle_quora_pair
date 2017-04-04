@@ -30,13 +30,14 @@ class RNN(object):
         self.question2_length_placeholder = tf.placeholder(shape=(None,), dtype=tf.int32)
         self.dropout_placeholder = tf.placeholder(dtype=tf.float32)
 
-    def create_feed_dict(self, question1, question1_length, question2, question2_length, label, dropout=1):
+    def create_feed_dict(self, question1, question1_length, question2, question2_length, label=None, dropout=1):
         feed_dict = {}
         feed_dict[self.question1_placeholder] = question1
         feed_dict[self.question1_length_placeholder] = question1_length
         feed_dict[self.question2_placeholder] = question2
         feed_dict[self.question2_length_placeholder] = question2_length
-        feed_dict[self.label_placeholder] = label
+        if label is not None:
+            feed_dict[self.label_placeholder] = label
         feed_dict[self.dropout_placeholder] = dropout
         return feed_dict
 
@@ -71,12 +72,15 @@ class RNN(object):
             question2_outputs, _= tf.nn.dynamic_rnn(cell=lstm_cell, dtype=tf.float32, inputs=question2_embeddings, sequence_length=self.question2_length_placeholder)
         #question1_states = tf.matmul(question1_states, sm_w)
 
+        batch_size = tf.shape(question1_outputs)[0]
+        maximum_length_1 = tf.shape(question1_outputs)[1]
+        maximum_length_2 = tf.shape(question2_outputs)[1]
 
-        index1 = tf.range(0, Config.batch_size) * Config.maximum_length + (self.question1_length_placeholder - 1)
+        index1 = tf.range(0, batch_size) * maximum_length_1 + (self.question1_length_placeholder - 1)
         question1_outputs = tf.gather(tf.reshape(question1_outputs, [-1, Config.hidden_state_size]), index1)
         question1_outputs = tf.nn.dropout(question1_outputs, keep_prob=self.dropout_placeholder)
 
-        index2 = tf.range(0, Config.batch_size) * Config.maximum_length + (self.question2_length_placeholder - 1)
+        index2 = tf.range(0, batch_size) * maximum_length_2 + (self.question2_length_placeholder - 1)
         question2_outputs = tf.gather(tf.reshape(question2_outputs, [-1, Config.hidden_state_size]), index2)
         question2_outputs = tf.nn.dropout(question2_outputs, keep_prob=self.dropout_placeholder)
 
@@ -85,7 +89,9 @@ class RNN(object):
 
         merge_output = tf.multiply(question1_outputs, question2_outputs)
         logits = tf.matmul(merge_output, sm_w_output) + sm_b_output
-        return tf.reshape(logits, shape=(-1, ))
+        logits = tf.reshape(logits, shape=(-1,))
+        self.predicts = tf.sigmoid(logits)
+        return logits
 
     def add_loss(self, logits):
         predicts = tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.to_float(self.label_placeholder), logits=logits)
@@ -150,6 +156,13 @@ class RNN(object):
         _, loss = sess.run([self.train_op, self.loss], feed_dict=feed_dict)
         return loss
 
+    def predict(self, sess, question1s, question2s):
+        question1s_length = map(len, question1s)
+        question2s_length = map(len, question2s)
+        feed_dict = self.create_feed_dict(question1=question1s, question1_length=question1s_length, question2=question2s, question2_length=question2s_length)
+        predicts = sess.run(self.predicts, feed_dict=feed_dict)
+        return predicts
+
     def save(self, sess, save_path):
         self.rnn_saver.save(sess, save_path)
 
@@ -171,6 +184,8 @@ class RNN(object):
         embeddings = np.append(embeddings, [Config.padding_embedding], axis=0)
         self.extended_embeddings = self.extended_embeddings.assign(embeddings)
         self.extended_embeddings.eval()
+
+
 
 if __name__ == "__main__":
     model = RNN()
