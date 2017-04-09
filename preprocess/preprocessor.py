@@ -1,9 +1,14 @@
 import pandas as pd
 import numpy as np
 from keras.preprocessing.text import text_to_word_sequence
-import string
 import io
 import re
+
+class Config:
+    test_csv_path = '../data/test.csv'
+    train_csv_path = '../data/train.csv'
+    seq2seq_training_file_path = '../data/seq2seq_train.csv'
+    vocab_file_path = '../data/vocab.txt'
 
 def extract_qeustions(input_file_path, output_file_path, mode='w+'):
     with io.open(input_file_path, encoding='utf-8') as input_file:
@@ -144,13 +149,48 @@ def calculate_maximum_length(file_path):
     print "maximum length of sentence: {}".format(maximum)
     return maximum
 
+def generate_seq2seq_training_data():
+    reverse_vocab = load_reverse_vocab(Config.vocab_file_path)
+    with io.open(Config.train_csv_path, encoding='utf-8') as train_data_file, io.open(Config.test_csv_path, encoding='utf-8') as test_data_file:
+        with io.open(Config.seq2seq_training_file_path, mode='w+', encoding='utf-8') as output_file:
+            train_csv = pd.read_csv(train_data_file)
+            train_csv = train_csv[pd.notnull(train_csv['question1'])]
+            train_csv = train_csv[pd.notnull(train_csv['question2'])]
+
+            questions1 = train_csv['question1'].tolist()
+            questions2 = train_csv['question2'].tolist()
+            is_duplicates = train_csv['is_duplicate'].tolist()
+            for idx, is_duplicate in enumerate(is_duplicates):
+                question1 = encoding_string(questions1[idx], reverse_vocab)
+                question2 = encoding_string(questions2[idx], reverse_vocab)
+                output_file.write(question1 + u',' + question1 + u'\n')
+                output_file.write(question2 + u',' + question2 + u'\n')
+                if is_duplicate:
+                    output_file.write(question1 + u',' + question2 + u'\n')
+                    output_file.write(question2 + u',' + question1 + u'\n')
+                print 'processed: ' + str(idx)
+
+            test_csv = pd.read_csv(test_data_file)
+            test_csv = train_csv[pd.notnull(test_csv['question1'])]
+            test_csv = train_csv[pd.notnull(test_csv['question2'])]
+
+            questions1 = test_csv['question1'].tolist()
+            questions2 = test_csv['question2'].tolist()
+            for idx, question in enumerate(questions1):
+                question1 = encoding_string(questions1[idx], reverse_vocab)
+                question2 = encoding_string(questions2[idx], reverse_vocab)
+                output_file.write(question1 + u',' + question1 + u'\n')
+                output_file.write(question2 + u',' + question2 + u'\n')
+                print 'processed: ' + str(idx)
+
 if __name__ == "__main__":
     #extract_qeustions('../data/test.csv', '../data/questions.txt')
     #extract_qeustions('../data/train.csv', '../data/questions.txt', mode='a')
-    calculate_maximum_length('../data/questions.txt')
+    #calculate_maximum_length('../data/questions.txt')
     #create_vocab('../data/questions.txt', '../data/vocab.txt')
     #numerical_encoding('../data/questions.txt', '../data/vocab.txt', '../data/numerical_questions.txt')
     #numerical_encode_train('../data/train.csv', '../data/vocab.txt', '../data/numerical_train.csv')
     #embeddings = load_glove('../data/glove.6B.100d.txt')
     #vocab = load_vocab('../data/vocab.txt')
     #init_domain_embedding(vocab, embeddings, '../data/embedding_init.txt')
+    generate_seq2seq_training_data()
