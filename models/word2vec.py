@@ -62,7 +62,8 @@ class Word2vec(object):
 
     def train_batch(self, sess, batch, label):
         feed_dict = self.create_feed_dict(batch, label, Config.dropout)
-        _, loss = sess.run([self.train_op, self.loss], feed_dict=feed_dict)
+        _, embeddings, loss = sess.run([self.train_op, self.pretrained_embeddings, self.loss], feed_dict=feed_dict)
+        print embeddings
         return loss
 
     def load_embeddings(self, embedding_file_path):

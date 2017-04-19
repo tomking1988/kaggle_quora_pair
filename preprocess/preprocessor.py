@@ -41,7 +41,7 @@ def create_vocab(input_file_path, output_file_path):
             print 'processed: ' + str(idx)
         with io.open(output_file_path, mode='w+', encoding='utf-8') as output_file:
             for word in vocab:
-                output_file.write(word.decode('utf-8'))
+                output_file.write(word.add_decode('utf-8'))
                 output_file.write('\n'.decode('utf-8'))
 
 def load_reverse_vocab(vocab_file_path):
