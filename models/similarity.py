@@ -7,7 +7,7 @@ from numpy.linalg import norm
 
 class Config:
     embed_size = 100
-    vocab_size = 137077
+    vocab_size = 50773
     epoch = 50
     trained_embedding_file_path = '../data/trained_model/word2vec/trained_embeddings.ckpt'
     trained_seq2seq_model_file_path = '../data/trained_model/seq2seq/trained_seq2seq_model.ckpt'
@@ -67,6 +67,10 @@ if __name__ == '__main__':
     cases.append(('how racist is too racist', 'how racist are you'))
     cases.append(('Should prostitution be legalized','how is prostitution legal'))
     cases.append(('Is it important to be creative to be a writer','where can I find creative writer'))
+    cases.append(('how are you', 'this is money'))
+    cases.append(('how do i reinstate amex card', 'how do i reinstate american express card'))
+    cases.append(('how do i reinstate amex card', 'how do i reinstate india card'))
+    cases.append(('how do i expense credit', 'how do i reinstate american express card'))
     for question1, question2 in cases:
         probability = model.detect(question1, question2)
         print question1 + ' ' + question2 + ' probability:' + str(probability)

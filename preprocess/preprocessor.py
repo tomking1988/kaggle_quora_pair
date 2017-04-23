@@ -9,6 +9,9 @@ class Config:
     train_csv_path = '../data/train.csv'
     seq2seq_training_file_path = '../data/seq2seq_train.csv'
     vocab_file_path = '../data/vocab.txt'
+    unigram_file_path = '../data/unigram.csv'
+    sentence_start = 'sentence_start'
+    word_occurrence_minimum = 10
 
 def extract_qeustions(input_file_path, output_file_path, mode='w+'):
     with io.open(input_file_path, encoding='utf-8') as input_file:
@@ -31,18 +34,31 @@ def space_concatenator(words):
 def dot_concatenator(words):
     return ",".join(map(str, words))
 
-def create_vocab(input_file_path, output_file_path):
-    vocab = set()
+def create_vocab(input_file_path, output_file_path, unigram_file_path=None, add_sentence_start=False):
+    vocab = dict()
     with io.open(input_file_path, encoding='utf-8') as input_file:
         for idx, line in enumerate(input_file):
             words = text_to_word_sequence(line.encode(encoding='utf-8'))
             for word in words:
-                vocab.add(word)
+                if vocab.has_key(word):
+                    vocab[word] += 1
+                else:
+                    vocab[word] = 1
             print 'processed: ' + str(idx)
         with io.open(output_file_path, mode='w+', encoding='utf-8') as output_file:
-            for word in vocab:
-                output_file.write(word.add_decode('utf-8'))
-                output_file.write('\n'.decode('utf-8'))
+            for word, count in vocab.iteritems():
+                if count > Config.word_occurrence_minimum:
+                    output_file.write(word.decode('utf-8'))
+                    output_file.write('\n'.decode('utf-8'))
+            if add_sentence_start:
+                output_file.write(Config.sentence_start.decode('utf-8'))
+    if unigram_file_path is not None:
+        with open(unigram_file_path, mode='w+') as unigram_file:
+            for key, value in vocab.iteritems():
+                if value > Config.word_occurrence_minimum:
+                    unigram_file.write(key)
+                    unigram_file.write(',')
+                    unigram_file.write(str(value) + '\n')
 
 def load_reverse_vocab(vocab_file_path):
     reverse_idx_vocab = dict()
@@ -59,11 +75,15 @@ def numerical_encoding(input_file_path, vocab_file_path, output_file_path):
             reverse_idx_vocab[word.strip()] = idx
         with io.open(input_file_path, encoding='utf-8') as input_file:
             with open(output_file_path, mode='w+') as output_file:
-                for line in input_file:
-                    words = line.split()
-                    for i, word in enumerate(words):
-                        words[i] = str(reverse_idx_vocab[word])
-                    output_file.write(dot_concatenator(words) + '\n')
+                for idx, line in enumerate(input_file):
+                    encodings = encoding_string(line.encode('utf-8'), reverse_idx_vocab)
+                    # words = line.split()
+                    # encodings = []
+                    # for i, word in enumerate(words):
+                    #     if word in reverse_idx_vocab:
+                    #         encodings.append(str(reverse_idx_vocab[word]))
+                    output_file.write(encodings.replace(' ', ',') + '\n')
+                    print 'processed: {}'.format(idx)
 
 def numerical_encode_train(train_file_path, vocab_file_path, output_file_path):
     reverse_idx_vocab = dict()
@@ -91,10 +111,16 @@ def encoding_string(sentence, reverse_vocab):
     words = sentence_to_numeric(sentence, reverse_vocab)
     return space_concatenator(words)
 
-def sentence_to_numeric(sentence, reverse_vocab):
+def sentence_to_numeric(sentence, reverse_vocab, add_sentence_start=False):
     words = text_to_word_sequence(sentence)
     words = map(lambda word: word.decode('utf-8'), words)
-    return map(lambda word: reverse_vocab[word], words)
+    encodings = []
+    if add_sentence_start:
+        encodings.append(reverse_vocab[Config.sentence_start])
+    for word in words:
+        if word in reverse_vocab:
+            encodings.append(reverse_vocab[word])
+    return encodings
 
 
 def load_glove(glove_file_path, dimension=100):
@@ -113,6 +139,9 @@ def load_vocab(vocab_file_path):
         for line in vocab_file:
             vocab.append(line.strip())
     return vocab
+
+def load_unigram(unigram_file_path):
+    return pd.read_csv(unigram_file_path, header=None)
 
 def init_domain_embedding(vocab, glove_embeddings, output_file_path):
     not_found = 0
@@ -156,18 +185,23 @@ def generate_seq2seq_training_data():
             train_csv = pd.read_csv(train_data_file)
             train_csv = train_csv[pd.notnull(train_csv['question1'])]
             train_csv = train_csv[pd.notnull(train_csv['question2'])]
-
             questions1 = train_csv['question1'].tolist()
             questions2 = train_csv['question2'].tolist()
             is_duplicates = train_csv['is_duplicate'].tolist()
             for idx, is_duplicate in enumerate(is_duplicates):
-                question1 = encoding_string(questions1[idx], reverse_vocab)
-                question2 = encoding_string(questions2[idx], reverse_vocab)
-                output_file.write(question1 + u',' + question1 + u'\n')
-                output_file.write(question2 + u',' + question2 + u'\n')
+                question1 = sentence_to_numeric(questions1[idx], reverse_vocab)
+                question2 = sentence_to_numeric(questions2[idx], reverse_vocab)
+
+                output_file.write(space_concatenator(question1) + u',' + space_concatenator(question1) + u'\n')
+                output_file.write(space_concatenator(question2) + u',' + space_concatenator(question2) + u'\n')
+
+                output_file.write(space_concatenator(question1[::-1]) + u',' + space_concatenator(question1) + u'\n')
+                output_file.write(space_concatenator(question2[::-1]) + u',' + space_concatenator(question2) + u'\n')
                 if is_duplicate:
-                    output_file.write(question1 + u',' + question2 + u'\n')
-                    output_file.write(question2 + u',' + question1 + u'\n')
+                    output_file.write(space_concatenator(question1) + u',' + space_concatenator(question2) + u'\n')
+                    output_file.write(space_concatenator(question2) + u',' + space_concatenator(question1) + u'\n')
+                    output_file.write(space_concatenator(question1[::-1]) + u',' + space_concatenator(question2) + u'\n')
+                    output_file.write(space_concatenator(question2[::-1]) + u',' + space_concatenator(question1) + u'\n')
                 print 'processed: ' + str(idx)
 
             test_csv = pd.read_csv(test_data_file)
@@ -177,20 +211,22 @@ def generate_seq2seq_training_data():
             questions1 = test_csv['question1'].tolist()
             questions2 = test_csv['question2'].tolist()
             for idx, question in enumerate(questions1):
-                question1 = encoding_string(questions1[idx], reverse_vocab)
-                question2 = encoding_string(questions2[idx], reverse_vocab)
-                output_file.write(question1 + u',' + question1 + u'\n')
-                output_file.write(question2 + u',' + question2 + u'\n')
+                question1 = sentence_to_numeric(questions1[idx], reverse_vocab)
+                question2 = sentence_to_numeric(questions2[idx], reverse_vocab)
+                output_file.write(space_concatenator(question1) + u',' + space_concatenator(question1) + u'\n')
+                output_file.write(space_concatenator(question2) + u',' + space_concatenator(question2) + u'\n')
+                output_file.write(space_concatenator(question1[::-1]) + u',' + space_concatenator(question1) + u'\n')
+                output_file.write(space_concatenator(question2[::-1]) + u',' + space_concatenator(question2) + u'\n')
                 print 'processed: ' + str(idx)
 
 if __name__ == "__main__":
     #extract_qeustions('../data/test.csv', '../data/questions.txt')
     #extract_qeustions('../data/train.csv', '../data/questions.txt', mode='a')
     #calculate_maximum_length('../data/questions.txt')
-    #create_vocab('../data/questions.txt', '../data/vocab.txt')
-    #numerical_encoding('../data/questions.txt', '../data/vocab.txt', '../data/numerical_questions.txt')
-    #numerical_encode_train('../data/train.csv', '../data/vocab.txt', '../data/numerical_train.csv')
-    #embeddings = load_glove('../data/glove.6B.100d.txt')
-    #vocab = load_vocab('../data/vocab.txt')
-    #init_domain_embedding(vocab, embeddings, '../data/embedding_init.txt')
-    generate_seq2seq_training_data()
+    create_vocab('../data/questions.txt', '../data/vocab.txt', Config.unigram_file_path)
+    # numerical_encoding('../data/questions.txt', '../data/vocab.txt', '../data/numerical_questions.txt')
+    # numerical_encode_train('../data/train.csv', '../data/vocab.txt', '../data/numerical_train.csv')
+    # embeddings = load_glove('../data/glove.6B.100d.txt')
+    # vocab = load_vocab('../data/vocab.txt')
+    # init_domain_embedding(vocab, embeddings, '../data/embedding_init.txt')
+    # generate_seq2seq_training_data()

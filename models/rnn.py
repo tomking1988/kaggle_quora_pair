@@ -3,22 +3,24 @@ import numpy as np
 
 class Config:
     embed_size = 100
-    vocab_size = 137077
+    vocab_size = 57772
     epoch = 100
     trained_embedding_file_path = '../data/trained_model/word2vec/trained_embeddings.ckpt'
     trained_rnn_model_file_path = '../data/trained_model/rnn/trained_rnn_model.ckpt'
     hidden_state_size = 100
     embedding_variable_name = 'embedding'
-    batch_size = 100
+    batch_size = 5000
     question1_index = 3
     question2_index = 4
     label_index = 5
-    maximum_length = 240
+    maximum_length = 30
     padding_embedding = [0] * embed_size
     padding = [vocab_size]
     scope_name = 'rnn'
-    starter_learning_rate = 0.1
-    dropout = 0.95
+    starter_learning_rate = 0.5
+    dropout = 0.8
+    layer_1_output_num = 50
+    learning_rate_decay = 0.5
 
 class RNN(object):
 
@@ -48,7 +50,7 @@ class RNN(object):
 
         with tf.variable_scope(Config.scope_name) as scope:
 
-            sm_w = tf.get_variable(shape=(Config.hidden_state_size, Config.hidden_state_size),
+            sm_w = tf.get_variable(shape=(2 * Config.hidden_state_size, Config.hidden_state_size),
                                    initializer=tf.contrib.layers.xavier_initializer(), name='sm_w')
             sm_w_output = tf.get_variable(shape=(Config.hidden_state_size, 1),
                                           initializer=tf.contrib.layers.xavier_initializer(), name='sm_w_1')
@@ -57,12 +59,12 @@ class RNN(object):
             sm_b_output = tf.get_variable(name='sm_b_1', shape=(1,),
                                           initializer=tf.contrib.layers.xavier_initializer())
 
-            lstm_cell = tf.contrib.rnn.BasicLSTMCell(Config.hidden_state_size)
+            lstm_cell = tf.contrib.rnn.LSTMCell(Config.hidden_state_size, initializer=self.orthogonal_initializer())
             #[batch_size, sentence_size, embed_size]
             question1_embeddings = tf.nn.embedding_lookup(self.extended_embeddings, self.question1_placeholder)
             question2_embeddings = tf.nn.embedding_lookup(self.extended_embeddings, self.question2_placeholder)
 
-            #Dropout embeddings
+            #dropout embeddings
             question1_embeddings = tf.nn.dropout(question1_embeddings, keep_prob=self.dropout_placeholder)
             question2_embeddings = tf.nn.dropout(question2_embeddings, keep_prob=self.dropout_placeholder)
 
@@ -78,30 +80,38 @@ class RNN(object):
 
         index1 = tf.range(0, batch_size) * maximum_length_1 + (self.question1_length_placeholder - 1)
         question1_outputs = tf.gather(tf.reshape(question1_outputs, [-1, Config.hidden_state_size]), index1)
-        question1_outputs = tf.nn.dropout(question1_outputs, keep_prob=self.dropout_placeholder)
 
         index2 = tf.range(0, batch_size) * maximum_length_2 + (self.question2_length_placeholder - 1)
         question2_outputs = tf.gather(tf.reshape(question2_outputs, [-1, Config.hidden_state_size]), index2)
-        question2_outputs = tf.nn.dropout(question2_outputs, keep_prob=self.dropout_placeholder)
 
-        question1_outputs = tf.matmul(question1_outputs, sm_w) + sm_b
-        #logits = tf.matmul(question_encoding, sm_w_1) + sm_b_1
+        merged = tf.concat([question1_outputs, question2_outputs], axis=1)
+        merged = tf.nn.dropout(merged, keep_prob=self.dropout_placeholder)
+        merged = tf.contrib.layers.batch_norm(merged, center=True, scale=True, is_training=True)
+        merged = tf.contrib.layers.fully_connected(merged, Config.layer_1_output_num, weights_initializer=tf.contrib.layers.xavier_initializer())
+        merged = tf.nn.dropout(merged, keep_prob=self.dropout_placeholder)
+        merged = tf.contrib.layers.batch_norm(merged, center=True, scale=True, is_training=True)
+        logits = tf.contrib.layers.fully_connected(merged, 1, activation_fn=None)
+        # merged = tf.matmul(merged, sm_w) + sm_b
+        # merged = tf.nn.relu(merged)
 
-        merge_output = tf.multiply(question1_outputs, question2_outputs)
-        logits = tf.matmul(merge_output, sm_w_output) + sm_b_output
+        #question1_outputs = tf.matmul(question1_outputs, sm_w) + sm_b
+
+
+
+        #logits = tf.matmul(merged, sm_w_output) + sm_b_output
         logits = tf.reshape(logits, shape=(-1,))
         self.predicts = tf.sigmoid(logits)
         return logits
 
     def add_loss(self, logits):
         predicts = tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.to_float(self.label_placeholder), logits=logits)
-        loss = tf.reduce_sum(predicts) / Config.batch_size
+        loss = tf.reduce_sum(predicts) / Config.batch_size / 2
         return loss
 
     def add_optimizer(self, loss):
         global_step = tf.Variable(0, trainable=False)
-        learning_rate = tf.train.exponential_decay(Config.starter_learning_rate, global_step, 10, 0.9, staircase=True)
-        optimizer = tf.train.AdamOptimizer(learning_rate)
+        learning_rate = tf.train.exponential_decay(Config.starter_learning_rate, global_step, 10, Config.learning_rate_decay, staircase=True)
+        optimizer = tf.train.GradientDescentOptimizer(learning_rate)
         return optimizer.minimize(loss, global_step=global_step)
 
     def create_example_batch(self, file_path, batch_size):
@@ -130,14 +140,35 @@ class RNN(object):
             question1 = example[Config.question1_index].split()
             question2 = example[Config.question2_index].split()
             label = int(example[Config.label_index])
-            question1 = map(int, question1)
-            question2 = map(int, question2)
+            question1 = self.truncate(map(int, question1), Config.maximum_length)
+            question2 = self.truncate(map(int, question2), Config.maximum_length)
+            #case 0: both normal
             question1s.append(question1)
             question2s.append(question2)
             labels.append(label)
+
+            # #case 1: question1 reverse
+            # question1s.append(question1[:-1])
+            # question2s.append(question2)
+            # labels.append(label)
+            #
+            # #case 2: question2 reverse
+            # question1s.append(question1)
+            # question2s.append(question2[:-1])
+            # labels.append(label)
+
+            #case 3: both reverse
+            question1s.append(question1[:-1])
+            question2s.append(question2[:-1])
+            labels.append(label)
+
         question1s, question1_length, question2s, question2_length = self.padding(question1s, question2s)
         return question1s, question1_length, question2s, question2_length, labels
 
+    def truncate(self, sequence, length_maximum):
+        if len(sequence) > length_maximum:
+            return sequence[:length_maximum]
+        return sequence
 
     def build(self):
         self.add_placeholder()
@@ -184,6 +215,15 @@ class RNN(object):
         embeddings = np.append(embeddings, [Config.padding_embedding], axis=0)
         self.extended_embeddings = self.extended_embeddings.assign(embeddings)
         self.extended_embeddings.eval()
+
+    def orthogonal_initializer(scale=1.0, seed=None, dtype=tf.float32):
+        def _initializer(shape, dtype=tf.float32, partition_info=None):
+            flat = (shape[0], np.prod(shape[1:]))
+            a = np.random.normal(0.0, 1.0, flat)
+            u, _, v = np.linalg.svd(a, full_matrices=False)
+            q = (u if u.shape == flat else v).reshape(shape)
+            return tf.constant(1.0 * q[:shape[0], :shape[1]], dtype=dtype)
+        return _initializer
 
 
 

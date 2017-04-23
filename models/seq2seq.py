@@ -3,13 +3,13 @@ import numpy as np
 
 class Config:
     embed_size = 100
-    vocab_size = 137077
-    epoch = 10
+    vocab_size = 57773
+    epoch = 30
     trained_embedding_file_path = '../data/trained_model/word2vec/trained_embeddings.ckpt'
     trained_seq2seq_model_file_path = '../data/trained_model/seq2seq/trained_seq2seq_model.ckpt'
     hidden_state_size = 50
     embedding_variable_name = 'embedding'
-    batch_size = 50
+    batch_size = 200
     question1_index = 3
     question2_index = 4
     label_index = 5
@@ -17,14 +17,17 @@ class Config:
     padding_embedding = [0] * embed_size
     padding = [vocab_size]
     scope_name = 'seq2seq'
-    starter_learning_rate = 0.5
+    starter_learning_rate = 0.8
     dropout = 0.85
-    num_sampled = 20000
+    num_sampled = 1024
     max_grad_norm = 5.0
     clip_gradients = True
 
 
 class Seq2seq(object):
+
+    def __init__(self, trainable=True):
+        self.trainable = trainable
 
     def add_placeholder(self):
         self.input_placeholder = tf.placeholder(shape=(None, Config.maximum_length), dtype=tf.int32)
@@ -90,8 +93,9 @@ class Seq2seq(object):
         with tf.variable_scope(Config.scope_name):
             with tf.variable_scope('decode'):
                 self.sm_w = tf.get_variable('sm_w', [Config.hidden_state_size, Config.vocab_size + 1],
-                                       initializer=tf.contrib.layers.xavier_initializer())
-                self.sm_b = tf.get_variable('sm_b', [Config.vocab_size + 1], initializer=tf.contrib.layers.xavier_initializer())
+                                       initializer=tf.contrib.layers.xavier_initializer(), trainable=self.trainable)
+                self.sm_b = tf.get_variable('sm_b', [Config.vocab_size + 1], initializer=tf.contrib.layers.xavier_initializer()
+                                            ,trainable=self.trainable)
                 gru_decode_cell = tf.contrib.rnn.GRUCell(Config.hidden_state_size)
 
                 def loop(prev, _):
@@ -166,9 +170,11 @@ class Seq2seq(object):
         self.embedding_saver = tf.train.Saver({Config.embedding_variable_name: self.pretrained_embeddings})
         self.seq2seq_saver = tf.train.Saver()
 
-
-    def restore_embedding(self, sess, embedding_file_path):
-        self.embedding_saver.restore(sess, embedding_file_path)
+    def init(self, sess):
+        self.embedding_saver.restore(sess, Config.trained_embedding_file_path)
+        if not self.trainable:
+            self.saver = tf.train.Saver()
+            self.saver.restore(sess, Config.trained_seq2seq_model_file_path)
 
     def train_batch(self, sess, inputs, inputs_length, targets, target_masks):
         feed_dict = self.create_feed_dict(inputs, inputs_length, targets, target_masks, Config.dropout)
@@ -221,7 +227,7 @@ if __name__ == "__main__":
         coord = tf.train.Coordinator()
         threads = tf.train.start_queue_runners(coord=coord)
         sess.run(init_op)
-        model.restore_embedding(sess, Config.trained_embedding_file_path)
+        model.init(sess)
         model.add_padding_embedding(sess)
         print 'start training'
         for step in range(Config.epoch):
@@ -230,5 +236,6 @@ if __name__ == "__main__":
             loss = model.train_batch(sess, inputs, inputs_length, targets, target_masks)
             print "step:{}, loss:{}".format(step, loss)
         model.save(sess, Config.trained_seq2seq_model_file_path)
+        print('Save seq2seq model')
         coord.request_stop()
         coord.join(threads)
